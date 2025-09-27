@@ -284,6 +284,220 @@ def authenticate(service_account_path: str):
     return service
 
 
+def format_price_display(price_dict: dict, highlight: bool = False, color: str = None) -> str:
+    """Format a price dictionary for display."""
+    if not price_dict:
+        return "N/A"
+    
+    currency = price_dict.get("currencyCode", "")
+    units = price_dict.get("units", "0")
+    nanos = price_dict.get("nanos", 0)
+    
+    # Convert nanos to decimal places
+    decimal_part = f"{nanos:09d}".rstrip('0') or '0'
+    if decimal_part == '0':
+        price_str = f"{units} {currency}"
+    else:
+        price_str = f"{units}.{decimal_part} {currency}"
+    
+    # Add highlighting for changes
+    if highlight:
+        if color == "green":
+            return f"\033[32m→ {price_str} ←\033[0m"  # Green for new
+        elif color == "yellow":
+            return f"\033[33m→ {price_str} ←\033[0m"  # Yellow for changes
+        else:
+            return f"→ {price_str} ←"
+    else:
+        return price_str
+
+
+def get_price_change_indicator(old_price: dict, new_price: dict) -> str:
+    """Generate a visual indicator for price changes."""
+    if not old_price or not new_price:
+        return ""
+    
+    old_units = float(old_price.get("units", "0"))
+    old_nanos = old_price.get("nanos", 0)
+    old_total = old_units + (old_nanos / 1_000_000_000)
+    
+    new_units = float(new_price.get("units", "0"))
+    new_nanos = new_price.get("nanos", 0)
+    new_total = new_units + (new_nanos / 1_000_000_000)
+    
+    if new_total > old_total:
+        return " 📈"  # Price increase
+    elif new_total < old_total:
+        return " 📉"  # Price decrease
+    else:
+        return " 🔄"  # Currency change only
+
+
+def print_price_changes_preview(base_plan: dict, new_configs: List[dict], enable_availability: bool):
+    """Print a detailed preview of price changes for dry run mode."""
+    existing_configs = {rc.get("regionCode"): rc for rc in base_plan.get("regionalConfigs", []) if rc.get("regionCode")}
+    
+    # Group changes by type
+    new_regions = []
+    price_changes = []
+    availability_changes = []
+    no_changes = []
+    
+    for config in new_configs:
+        region_code = config.get("regionCode")
+        new_price = config.get("price", {})
+        new_availability = config.get("newSubscriberAvailability")
+        
+        existing_config = existing_configs.get(region_code)
+        
+        if not existing_config:
+            # New region
+            new_regions.append({
+                "region": region_code,
+                "price": new_price,
+                "availability": new_availability
+            })
+        else:
+            existing_price = existing_config.get("price", {})
+            existing_availability = existing_config.get("newSubscriberAvailability")
+            
+            # Check for price changes
+            price_changed = (
+                existing_price.get("currencyCode") != new_price.get("currencyCode") or
+                existing_price.get("units") != new_price.get("units") or
+                existing_price.get("nanos") != new_price.get("nanos")
+            )
+            
+            # Check for availability changes
+            availability_changed = enable_availability and existing_availability != new_availability
+            
+            if price_changed:
+                price_changes.append({
+                    "region": region_code,
+                    "old_price": existing_price,
+                    "new_price": new_price,
+                    "availability_changed": availability_changed,
+                    "new_availability": new_availability
+                })
+            elif availability_changed:
+                availability_changes.append({
+                    "region": region_code,
+                    "price": new_price,
+                    "old_availability": existing_availability,
+                    "new_availability": new_availability
+                })
+            else:
+                no_changes.append({
+                    "region": region_code,
+                    "price": new_price
+                })
+    
+    # Print summary
+    print(f"\nSUMMARY:")
+    print(f"  • New regions: {len(new_regions)}")
+    print(f"  • Price changes: {len(price_changes)}")
+    print(f"  • Availability changes: {len(availability_changes)}")
+    print(f"  • No changes: {len(no_changes)}")
+    print(f"  • Total regions: {len(new_configs)}")
+    
+    # Print new regions
+    if new_regions:
+        print(f"\n🆕 NEW REGIONS ({len(new_regions)}):")
+        print(f"{'Region':<8} {'Price':<30} {'Availability':<25}")
+        print("-" * 65)
+        for item in sorted(new_regions, key=lambda x: x["region"]):
+            price_str = format_price_display(item["price"], highlight=True, color="green")
+            availability_str = item["availability"] or "Not set"
+            print(f"{item['region']:<8} {price_str:<30} {availability_str:<25}")
+    
+    # Print price changes
+    if price_changes:
+        print(f"\n💰 PRICE CHANGES ({len(price_changes)}):")
+        print(f"{'Region':<8} {'Old Price':<18} {'New Price':<30} {'Change':<8} {'Availability':<20}")
+        print("-" * 90)
+        for item in sorted(price_changes, key=lambda x: x["region"]):
+            old_price_str = format_price_display(item["old_price"])
+            new_price_str = format_price_display(item["new_price"], highlight=True, color="yellow")
+            change_indicator = get_price_change_indicator(item["old_price"], item["new_price"])
+            
+            if item["availability_changed"]:
+                availability_str = f"\033[36m→ {item['new_availability'][:15]}\033[0m"  # Cyan for availability change
+            else:
+                availability_str = "No change"
+            
+            print(f"{item['region']:<8} {old_price_str:<18} {new_price_str:<30} {change_indicator:<8} {availability_str:<20}")
+    
+    # Print availability-only changes
+    if availability_changes:
+        print(f"\n🌍 AVAILABILITY CHANGES ({len(availability_changes)}):")
+        print(f"{'Region':<8} {'Price':<20} {'Old Availability':<25} {'New Availability':<25}")
+        print("-" * 80)
+        for item in sorted(availability_changes, key=lambda x: x["region"]):
+            price_str = format_price_display(item["price"])
+            old_avail = item["old_availability"] or "Not set"
+            new_avail = item["new_availability"] or "Not set"
+            print(f"{item['region']:<8} {price_str:<20} {old_avail:<25} {new_avail:<25}")
+    
+    # Print regions with no changes (only if there are some)
+    if no_changes and len(no_changes) <= 10:  # Only show if reasonably small list
+        print(f"\n✅ NO CHANGES ({len(no_changes)}):")
+        print(f"{'Region':<8} {'Current Price':<20}")
+        print("-" * 30)
+        for item in sorted(no_changes, key=lambda x: x["region"]):
+            price_str = format_price_display(item["price"])
+            print(f"{item['region']:<8} {price_str:<20}")
+    elif no_changes:
+        print(f"\n✅ NO CHANGES: {len(no_changes)} regions will remain unchanged")
+    
+    # Print highlighted summary of key changes
+    if price_changes or new_regions:
+        print(f"\n" + "🔍 CHANGE HIGHLIGHTS".center(80, "="))
+        
+        if new_regions:
+            print(f"\n✨ Adding {len(new_regions)} new regions:")
+            for item in sorted(new_regions[:5], key=lambda x: x["region"]):  # Show first 5
+                price_str = format_price_display(item["price"], highlight=True, color="green")
+                print(f"   {item['region']}: {price_str}")
+            if len(new_regions) > 5:
+                print(f"   ... and {len(new_regions) - 5} more")
+        
+        if price_changes:
+            increases = [item for item in price_changes if get_price_change_indicator(item["old_price"], item["new_price"]) == " 📈"]
+            decreases = [item for item in price_changes if get_price_change_indicator(item["old_price"], item["new_price"]) == " 📉"]
+            currency_only = [item for item in price_changes if get_price_change_indicator(item["old_price"], item["new_price"]) == " 🔄"]
+            
+            if increases:
+                print(f"\n📈 Price increases ({len(increases)}):")
+                for item in sorted(increases[:5], key=lambda x: x["region"]):
+                    old_str = format_price_display(item["old_price"])
+                    new_str = format_price_display(item["new_price"], highlight=True, color="yellow")
+                    print(f"   {item['region']}: {old_str} → {new_str}")
+                if len(increases) > 5:
+                    print(f"   ... and {len(increases) - 5} more")
+            
+            if decreases:
+                print(f"\n📉 Price decreases ({len(decreases)}):")
+                for item in sorted(decreases[:5], key=lambda x: x["region"]):
+                    old_str = format_price_display(item["old_price"])
+                    new_str = format_price_display(item["new_price"], highlight=True, color="yellow")
+                    print(f"   {item['region']}: {old_str} → {new_str}")
+                if len(decreases) > 5:
+                    print(f"   ... and {len(decreases) - 5} more")
+            
+            if currency_only:
+                print(f"\n🔄 Currency changes ({len(currency_only)}):")
+                for item in sorted(currency_only[:5], key=lambda x: x["region"]):
+                    old_str = format_price_display(item["old_price"])
+                    new_str = format_price_display(item["new_price"], highlight=True, color="yellow")
+                    print(f"   {item['region']}: {old_str} → {new_str}")
+                if len(currency_only) > 5:
+                    print(f"   ... and {len(currency_only) - 5} more")
+        
+        print("=" * 80)
+    
+    print(f"\n💡 To apply these changes, run the same command with --apply")
+
+
 def clamp_config_from_error_message(error_message: str, merged_configs: List[dict]) -> bool:
     """Parse error like:
     "Price for CI must be between F CFA 30 and F CFA 627,341, found F CFA 27"
@@ -710,6 +924,11 @@ def main():
     print(f"Using regionsVersion: {rv_str if rv_str else 'None'}")
 
     if not args.apply:
+        print("\n" + "="*80)
+        print("DRY RUN - PREVIEW OF CHANGES")
+        print("="*80)
+        print_price_changes_preview(base_plan, merged_regional_configs, args.enable_availability)
+        print("="*80)
         print("Dry-run: no changes applied. Use --apply to perform the update.")
         return
 
