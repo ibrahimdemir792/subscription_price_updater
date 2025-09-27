@@ -1,0 +1,15 @@
+{
+  "package_name": "com.example.app",
+  "product_id": "subscription-product",
+  "base_plan_id": "monthly-plan",
+  "service_account_path": "service-account.json",
+  "default_csv_path": "prices.csv",
+  "regions_version": "2025/01",
+  "defaults": {
+    "fix_currency": true,
+    "convert_currency": true,
+    "use_recommended": false,
+    "batch_size": 50,
+    "enable_availability": false
+  }
+}
