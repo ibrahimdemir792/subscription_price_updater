@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Use this script to convert prices downloaded from apple connect to compatible google play console  prices.
+Use this script to convert prices downloaded from apple connect to compatible google play console prices.
 """
 
 import csv
