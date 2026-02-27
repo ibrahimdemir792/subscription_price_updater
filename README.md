@@ -1,18 +1,35 @@
-# Subscription Price Updater (Google Play Console)
+# Google Play Price Updater
 
-A Python tool to update subscription pricing for Google Play Console apps using CSV files. This tool makes it easy to manage regional pricing across multiple countries and currencies.
+A Python toolkit to manage regional pricing for Google Play apps via the [Android Publisher API (v3)](https://developers.google.com/android-publisher). Supports both **subscriptions** and **one-time products** from a single CSV file.
 
 This repository is vibe-coded with Gpt-5 and Claude-4.
 
 ## Features
 
-- 🌍 **Multi-region pricing**: Update prices across all Google Play supported regions
-- 💱 **Currency conversion**: Automatically convert prices using Google's exchange rates
-- 📊 **CSV-based**: Easy-to-use CSV format for price management
-- ⚙️ **Configuration-driven**: Set up once, run anywhere
-- 🔄 **Batch processing**: Update prices in chunks to handle large datasets
-- 🛡️ **Safe defaults**: Dry-run mode to preview changes before applying
-- 🔧 **Error handling**: Automatic price clamping and region filtering
+- **Subscriptions & One-Time Products** - Two dedicated scripts sharing a common core
+- **Multi-region pricing** - Update prices across all Google Play supported regions
+- **Currency conversion** - Automatically convert prices using Google's exchange rates
+- **CSV-based** - Easy-to-use CSV format for price management
+- **Configuration-driven** - Set up once, run anywhere
+- **Batch processing** - Update prices in chunks to handle large datasets
+- **Safe defaults** - Dry-run mode to preview changes before applying
+- **Error handling** - Automatic price clamping and region filtering
+- **Apple-to-Google converter** - Convert Apple Connect pricing CSVs to Google Play format
+
+## Project Structure
+
+```
+google-play-api/
+├── common.py                  # Shared utilities (CSV, auth, API helpers)
+├── preview.py                 # Dry-run preview display logic
+├── update_play_prices.py      # Subscription price updater
+├── update_play_otp_prices.py  # One-time product price updater
+├── apple-to-google.py         # Apple Connect CSV → Google Play CSV converter
+├── setup.py                   # Interactive configuration wizard
+├── config.json.example        # Example configuration
+├── example_prices.csv         # Example CSV with sample prices
+└── requirements.txt           # Python dependencies
+```
 
 ## Quick Start
 
@@ -25,15 +42,17 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2.Authentication
+### 2. Authentication
 
 You need a Google Cloud service account with Android Publisher API access:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select existing one
-3. Enable the "Google Play Android Developer API"
+3. Enable the **Google Play Android Developer API**
 4. Create a service account and download the JSON key
-5. In Google Play Console, add the service account email with appropriate permissions
+5. In Google Play Console, go to **Settings > API access** and grant the service account permissions
+
+> **Security**: Never commit your service account JSON file. It is already excluded by `.gitignore`.
 
 ### 3. Setup
 
@@ -43,49 +62,58 @@ Run the interactive setup to create your configuration:
 python setup.py
 ```
 
-This will guide you through:
+The wizard lets you choose what to configure:
+- **Option 1**: Subscription pricing only
+- **Option 2**: One-time product pricing only
+- **Option 3**: Both
 
-- Setting your app's package name
-- Configuring product and base plan IDs
-- Setting up authentication
-- Choosing default options
+Or copy the example and edit manually:
+
+```bash
+cp config.json.example config.json
+```
 
 ### 4. Prepare Your CSV
 
-Create a CSV file with the following columns:
+Create a CSV file with these columns:
 
-- `Countries or Regions`: ISO 3-letter country codes (e.g., USA, GBR, DEU)
-- `Currency Code`: 3-letter currency codes (e.g., USD, EUR, JPY)
-- `Price`: Numeric price in the specified currency
-
-Example:
+| Column | Description | Example |
+|---|---|---|
+| `Countries or Regions` | ISO 3-letter country code | `USA`, `GBR`, `DEU` |
+| `Currency Code` | 3-letter currency code | `USD`, `EUR`, `JPY` |
+| `Price` | Numeric price (no symbols) | `9.99`, `1200` |
 
 ```csv
 Countries or Regions,Currency Code,Price
 USA,USD,9.99
 GBR,GBP,7.99
 DEU,EUR,8.99
+JPN,JPY,1200
 ```
 
-Use the provided templates:
+See `example_prices.csv` for a complete sample.
 
-- `example_prices.csv`: Basic example with major markets
-- `template_monthly_prices.csv`: Comprehensive template with 75+ regions
+**Coming from Apple Connect?** Use the converter:
 
-### 5. Test and Apply
+```bash
+python apple-to-google.py
+```
 
-**Dry run** (preview changes):
+Edit `INPUT_FILE` and `OUTPUT_FILE` at the top of the script to point to your files.
+
+---
+
+## Usage
+
+### Subscription Prices (`update_play_prices.py`)
+
+Updates regional pricing for a subscription's base plan using the `monetization.subscriptions` API.
+
+**Dry run** (preview changes without applying):
 
 ```bash
 python update_play_prices.py
 ```
-
-The dry run now shows a detailed preview with **highlighted price changes**:
-- 🆕 **New regions** with \033[32m→ green highlighting ←\033[0m
-- 💰 **Price changes** with \033[33m→ yellow highlighting ←\033[0m
-- 📈 **Price increases**, 📉 **decreases**, 🔄 **currency changes**  
-- 🌍 **Availability changes** with \033[36m→ cyan highlighting ←\033[0m
-- 🔍 **Change highlights** summary at the end
 
 **Apply changes**:
 
@@ -93,229 +121,221 @@ The dry run now shows a detailed preview with **highlighted price changes**:
 python update_play_prices.py --apply
 ```
 
+**Override config with CLI flags**:
+
+```bash
+python update_play_prices.py \
+  --package-name com.example.app \
+  --product-id premium \
+  --base-plan-id monthly \
+  --csv prices.csv \
+  --apply
+```
+
+#### Subscription CLI Options
+
+| Option | Description | Default |
+|---|---|---|
+| `--package-name` | Android package name | From config |
+| `--product-id` | Subscription product ID | From config |
+| `--base-plan-id` | Base plan ID | From config |
+| `--csv` | Path to CSV file | From config |
+| `--service-account` | Path to service account JSON | From config |
+| `--apply` | Apply changes (default is dry-run) | `false` |
+| `--fix-currency` | Auto-correct currency mismatches | From config |
+| `--convert-currency` | Convert amounts when fixing currency | From config |
+| `--use-recommended` | Use Google's recommended prices | From config |
+| `--batch-size N` | Process N regions per request | From config |
+| `--regions-version` | Regions version string (e.g. `2025/03`) | From config |
+| `--enable-availability` | Enable purchases in updated regions | From config |
+| `--migrate-existing` | Migrate legacy subscriber cohorts | `false` |
+| `--migrate-cutoff` | ISO8601 cutoff for migration | - |
+| `--migrate-increase-type` | `PRICE_INCREASE_TYPE_OPT_IN` or `OPT_OUT` | `OPT_IN` |
+
+---
+
+### One-Time Product Prices (`update_play_otp_prices.py`)
+
+Updates regional pricing for one-time products (in-app purchases) using the `monetization.onetimeproducts` API.
+
+**List all one-time products** (discover product & purchase option IDs):
+
+```bash
+python update_play_otp_prices.py --list-products
+```
+
+**Dry run**:
+
+```bash
+python update_play_otp_prices.py
+```
+
+**Apply changes**:
+
+```bash
+python update_play_otp_prices.py --apply
+```
+
+**Override config with CLI flags**:
+
+```bash
+python update_play_otp_prices.py \
+  --product-id coins_500 \
+  --purchase-option-id buy-option-1 \
+  --csv otp_prices.csv \
+  --apply
+```
+
+#### OTP CLI Options
+
+| Option | Description | Default |
+|---|---|---|
+| `--package-name` | Android package name | From config |
+| `--product-id` | One-time product ID | From config |
+| `--purchase-option-id` | Purchase option ID (omit for first) | From config |
+| `--csv` | Path to CSV file | From config |
+| `--service-account` | Path to service account JSON | From config |
+| `--apply` | Apply changes (default is dry-run) | `false` |
+| `--fix-currency` | Auto-correct currency mismatches | From config |
+| `--convert-currency` | Convert amounts when fixing currency | From config |
+| `--use-recommended` | Use Google's recommended prices | From config |
+| `--regions-version` | Regions version string | From config |
+| `--enable-availability` | Set availability=AVAILABLE | From config |
+| `--list-products` | List all OTP products and exit | - |
+
+---
+
 ## Configuration
 
-The tool uses `config.json` for default settings. Create one using `python setup.py` or manually:
+Both scripts read from the same `config.json`. Fields are grouped by purpose:
 
 ```json
 {
   "package_name": "com.example.app",
-  "product_id": "subscription-product",
+
+  "product_id": "premium-subscription",
   "base_plan_id": "monthly-plan",
+
+  "otp_product_id": "coins_500",
+  "otp_purchase_option_id": "",
+
   "service_account_path": "service-account.json",
   "default_csv_path": "prices.csv",
-  "regions_version": "2025/01",
+  "regions_version": "2025/03",
   "defaults": {
     "fix_currency": true,
     "convert_currency": true,
     "use_recommended": false,
-    "batch_size": 50,
+    "batch_size": 0,
     "enable_availability": false
   }
 }
 ```
 
-### Configuration Parameters Explained
+### Field Reference
 
-#### Basic Settings
+#### Shared Fields (both scripts)
 
-| Parameter                | Description                                                   | When to Use                                               |
-| ------------------------ | ------------------------------------------------------------- | --------------------------------------------------------- |
-| `package_name`         | Your Android app's package identifier (e.g., com.example.app) | **Required** - Always needed to identify your app   |
-| `product_id`           | Subscription product ID from Google Play Console              | Use when you have multiple subscription products          |
-| `base_plan_id`         | Specific base plan ID to update                               | Use when you have multiple plans (monthly, annual, etc.)  |
-| `service_account_path` | Path to your Google Cloud service account JSON file           | **Required** - Always needed for authentication     |
-| `default_csv_path`     | Default CSV file to use if none specified                     | Set to your most commonly used pricing file               |
-| `regions_version`      | Google Play regions version (format: YYYY/MM)                 | Update when Google releases new regional pricing versions |
+| Field | Required | Description |
+|---|---|---|
+| `package_name` | Yes | Your app's package name (e.g. `com.example.app`) |
+| `service_account_path` | Yes | Path to Google Cloud service account JSON key |
+| `default_csv_path` | No | Default CSV file when `--csv` is not specified |
+| `regions_version` | No | Google Play regions version (format: `YYYY/MM`) |
 
-#### Default Behavior Settings
+#### Subscription Fields (`update_play_prices.py`)
 
-| Parameter               | Default   | Description                                                                | When to Use                                                                                                |
-| ----------------------- | --------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `fix_currency`        | `true`  | Auto-correct currency mismatches between CSV and Google requirements       | ✅**Recommended: `true`** - Prevents errors when your CSV has wrong currencies for certain regions |
-| `convert_currency`    | `true`  | Convert price amounts when fixing currencies using Google's exchange rates | Use `true` when you want accurate price conversions, `false` to keep original amounts                  |
-| `use_recommended`     | `false` | Replace CSV prices with Google's recommended regional prices               | Use `true` for Google's optimized pricing, `false` to use your exact CSV prices                        |
-| `batch_size`          | `0`     | Number of regions to process per request (0 = all at once)                 | Use `25-50` for large price lists to avoid timeouts, `0` for small lists                               |
-| `enable_availability` | `false` | Enable new subscriber availability for updated regions                     | Use `true` when launching in new regions or re-enabling purchases                                        |
+| Field | Description |
+|---|---|
+| `product_id` | Subscription product ID from Play Console |
+| `base_plan_id` | Base plan ID within the subscription |
 
-### Detailed Parameter Explanations
+#### One-Time Product Fields (`update_play_otp_prices.py`)
 
-#### `fix_currency` - Currency Mismatch Handling
+| Field | Description |
+|---|---|
+| `otp_product_id` | One-time product ID from Play Console |
+| `otp_purchase_option_id` | Purchase option ID (leave empty to use the first option) |
 
-**What it does**: Automatically corrects currency codes in your CSV to match Google Play requirements for each region.
+#### Default Behavior (`defaults`)
 
-**Example scenarios**:
+| Field | Default | Description |
+|---|---|---|
+| `fix_currency` | `true` | Auto-correct currency mismatches between CSV and Google requirements |
+| `convert_currency` | `true` | Convert price amounts using Google's exchange rates when fixing currency |
+| `use_recommended` | `false` | Replace CSV prices with Google's recommended regional prices |
+| `batch_size` | `0` | Regions per request (`0` = all at once, `25-50` for large lists) |
+| `enable_availability` | `false` | Enable purchasing in updated regions |
 
-- ❌ Your CSV has `USD` for Germany, but Google requires `EUR`
-- ❌ Your CSV has `GBP` for France, but Google requires `EUR`
-- ✅ Tool automatically fixes these mismatches
+---
 
-**When to use `true`**:
+## Dry Run Preview
 
-- You're unsure about correct regional currencies
-- Your CSV was created for multiple platforms (not just Google Play)
-- You want to avoid "currency not supported" errors
+Both scripts default to dry-run mode. The preview shows:
 
-**When to use `false`**:
+- **New regions** - regions being added for the first time
+- **Price changes** - with increase/decrease indicators
+- **Availability changes** - if `--enable-availability` is set
+- **Unchanged regions** - for verification
+- **Change highlights** - summary of increases, decreases, and currency changes
 
-- Your CSV currencies are already 100% correct for Google Play
-- You want to catch currency errors manually
+Run the same command with `--apply` to commit the changes.
 
-#### `convert_currency` - Price Amount Conversion
-
-**What it does**: When fixing currencies, also converts the actual price amounts using Google's exchange rates.
-
-**Example scenarios**:
-
-- Your CSV: Germany = `$9.99 USD`
-- With `convert_currency: true`: Germany = `€8.45 EUR` (converted amount)
-- With `convert_currency: false`: Germany = `€9.99 EUR` (same number, different currency)
-
-**When to use `true`**:
-
-- You want economically equivalent prices across regions
-- Your base prices are in one currency (e.g., USD) and you want fair regional pricing
-- You trust Google's exchange rates
-
-**When to use `false`**:
-
-- You've already calculated regional prices manually
-- You want consistent price numbers across regions (e.g., always X.99)
-- You have specific pricing strategies per region
-
-#### `use_recommended` - Google's Optimized Pricing
-
-**What it does**: Replaces your CSV prices with Google's recommended prices based on market research and purchasing power.
-
-**Example scenarios**:
-
-- Your CSV: India = `$9.99 USD`
-- Google recommended: India = `₹299 INR` (optimized for local market)
-
-**When to use `true`**:
-
-- You're launching globally and want market-optimized pricing
-- You trust Google's market research over your own pricing
-- You want to maximize conversions in each region
-
-**When to use `false`**:
-
-- You have specific business pricing requirements
-- You've done your own market research
-- You want consistent global pricing strategy
-
-#### `batch_size` - Processing Strategy
-
-**What it does**: Splits large price updates into smaller chunks to avoid API limits and timeouts.
-
-**Recommendations**:
-
-- `0` (default): Process all regions at once - fast but may timeout with 50+ regions
-- `25-50`: Good balance for most cases - reliable processing
-- `10-25`: Very safe for large datasets or slow connections
-- `100+`: Only for small total region counts
-
-**When to use small batches (10-25)**:
-
-- You have 100+ regions in your CSV
-- You're experiencing timeout errors
-- You have a slow internet connection
-- You want to monitor progress step-by-step
-
-**When to use large batches (50+) or 0**:
-
-- You have fewer than 50 regions
-- You want fastest possible processing
-- Your internet connection is reliable
-
-#### `enable_availability` - Market Activation
-
-**What it does**: Sets new subscriber availability to allow purchases in updated regions.
-
-**Example scenarios**:
-
-- Region was previously disabled due to pricing issues
-- You're launching your app in new countries
-- You've updated prices and want to re-enable purchases
-
-**When to use `true`**:
-
-- Launching in new markets for the first time
-- Re-enabling previously disabled regions
-- You've fixed pricing issues and want to allow new subscriptions
-
-**When to use `false`**:
-
-- Just updating prices in existing active markets
-- You want to manually control market availability through Play Console
-- You're testing pricing changes before going live
-
-## Command Line Options
-
-### Basic Options
-
-| Option             | Description                        | Default         |
-| ------------------ | ---------------------------------- | --------------- |
-| `--config`       | Path to configuration file         | `config.json` |
-| `--csv`          | Path to CSV file                   | From config     |
-| `--apply`        | Apply changes (default is dry-run) | `false`       |
-| `--package-name` | Android package name               | From config     |
-| `--product-id`   | Subscription product ID            | From config     |
-| `--base-plan-id` | Base plan ID                       | From config     |
-
-### Migration Options
-
-| Option                      | Description                            |
-| --------------------------- | -------------------------------------- |
-| `--migrate-existing`      | Migrate existing subscriber cohorts    |
-| `--migrate-cutoff`        | ISO8601 timestamp for migration cutoff |
-| `--migrate-increase-type` | Price increase type (opt-in/opt-out)   |
+---
 
 ## How It Works
 
-1. **CSV Processing**: Reads your CSV file and converts ISO3 country codes to ISO2
-2. **Authentication**: Connects to Google Play using your service account
-3. **Validation**: Checks that regions are billable and currencies match requirements
-4. **Price Preparation**: Builds the regional price configuration
-5. **API Update**: Updates the base plan through Google Play's Android Publisher API
-6. **Error Handling**: Automatically handles price bounds and unsupported regions
+1. **CSV Processing** - Reads the CSV and converts ISO 3-letter country codes to ISO 2-letter codes
+2. **Authentication** - Connects to Google Play using the service account
+3. **Region Validation** - Filters non-billable regions and fixes currency mismatches
+4. **Price Merging** - Merges new prices with existing regional configs (preserving unmodified regions)
+5. **API Update** - Patches the subscription or one-time product via the Android Publisher API v3
+6. **Error Recovery** - Automatically clamps out-of-range prices and retries on timeouts
+
+---
 
 ## Troubleshooting
 
-### Common Issues
-
 **"Configuration file not found"**
-
-- Run `python setup.py` to create your configuration file
+- Run `python setup.py` or copy `config.json.example` to `config.json`
 
 **"Service account file not found"**
+- Check that `service_account_path` in your config points to the correct file
 
-- Ensure your service account JSON file path is correct in the configuration
-- Check that the file has proper permissions
-
-**"Package name is required"**
-
-- Add your package name to `config.json` or use `--package-name`
+**"One-time product not found"**
+- Run `python update_play_otp_prices.py --list-products` to see available products
 
 **"Price for XX must be between..."**
-
-- The tool will automatically clamp prices to Google's allowed ranges
-- Use `--use-recommended` for Google's suggested regional prices
+- The tool automatically clamps prices to Google's allowed range and retries
 
 **"Region code XX is not supported"**
+- The tool automatically skips unsupported regions
 
-- Some regions may not be available for your app
-- The tool will automatically skip unsupported regions
+**Timeout errors**
+- Set `batch_size` to `25-50` in your config or use `--batch-size 25`
 
 ### Price Formatting
 
 - Use decimal notation: `9.99` not `$9.99`
 - No currency symbols or thousands separators
-- Google Play will enforce minimum/maximum price bounds per region
+- Google Play enforces minimum/maximum price bounds per region
+
+---
+
+## Security
+
+The `.gitignore` excludes all sensitive files by default:
+- `config.json` (contains your package name and file paths)
+- `*.json` (service account keys)
+- `*.csv` (your pricing data)
+
+Only `config.json.example` and `example_prices.csv` are tracked.
+
+> **Important**: If you accidentally commit a service account key, revoke it immediately in Google Cloud Console and generate a new one. Git history retains deleted files.
+
+---
 
 ## Contributing
-
-Feel free to submit issues and pull requests. When contributing:
 
 1. Test with your own Google Play app first
 2. Include example CSV files for new features
@@ -324,10 +344,10 @@ Feel free to submit issues and pull requests. When contributing:
 
 ## License
 
-This project is provided as-is for educational and development purposes. Make sure to test thoroughly with your own apps before using in production.
+This project is provided as-is for educational and development purposes. Test thoroughly with your own apps before using in production.
 
 ## Support
 
-- Check the [Google Play Console Help](https://support.google.com/googleplay/android-developer/) for API documentation
-- Review [Android Publisher API](https://developers.google.com/android-publisher) documentation
+- [Google Play Console Help](https://support.google.com/googleplay/android-developer/)
+- [Android Publisher API Documentation](https://developers.google.com/android-publisher)
 - File issues in this repository for tool-specific problems

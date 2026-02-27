@@ -1,15 +1,20 @@
 {
   "package_name": "com.example.app",
-  "product_id": "subscription-product",
+
+  "product_id": "premium-subscription",
   "base_plan_id": "monthly-plan",
+
+  "otp_product_id": "coins_500",
+  "otp_purchase_option_id": "",
+
   "service_account_path": "service-account.json",
   "default_csv_path": "prices.csv",
-  "regions_version": "2025/01",
+  "regions_version": "2025/03",
   "defaults": {
     "fix_currency": true,
     "convert_currency": true,
     "use_recommended": false,
-    "batch_size": 50,
+    "batch_size": 0,
     "enable_availability": false
   }
 }

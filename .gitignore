@@ -1,10 +1,21 @@
 /.venv
 /.idea
+__pycache__/
+*.pyc
+
+# Sensitive files - NEVER commit these
+config.json
+*.json
+!config.json.example
+!example_prices.csv
+
+# User-specific CSV files
+*.csv
+!example_prices.csv
+
+# macOS
+.DS_Store
+
+# Legacy / scratch files
 /GETTING_STARTED.md
-/Luxury-Annual.csv
-/Luxury-Monthly.csv
-/Luxury-Weekly.csv
 /examples.py
-/stylegen-ai-1728306421310-0920934e7b84.json
-/template_monthly_prices.csv
-/config.json
