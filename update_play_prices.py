@@ -3,20 +3,34 @@ import argparse
 import csv
 import json
 import os
+import socket
 import sys
+import time
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
+import httplib2
 import pycountry
 from google.oauth2 import service_account
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 
 ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+
+# HTTP timeout in seconds (default is 60, increase for large requests)
+HTTP_TIMEOUT = 600  # 10 minutes
+
+# Set global socket timeout as fallback
+socket.setdefaulttimeout(HTTP_TIMEOUT)
+
+# Retry settings for timeout errors
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 
 def load_config(config_path: str = "config.json") -> Dict:
@@ -280,7 +294,10 @@ def authenticate(service_account_path: str):
     credentials = service_account.Credentials.from_service_account_file(
         service_account_path, scopes=[ANDROID_PUBLISHER_SCOPE]
     )
-    service = build("androidpublisher", "v3", credentials=credentials, cache_discovery=False)
+    # Create HTTP client with extended timeout for large requests
+    http = httplib2.Http(timeout=HTTP_TIMEOUT)
+    authorized_http = AuthorizedHttp(credentials, http=http)
+    service = build("androidpublisher", "v3", http=authorized_http, cache_discovery=False)
     return service
 
 
@@ -669,7 +686,22 @@ def patch_base_plan_regional_configs(
     if regions_version_str:
         sep = '&' if '?' in req.uri else '?'
         req.uri = f"{req.uri}{sep}regionsVersion.version={quote(regions_version_str)}"
-    return req.execute()
+    
+    # Retry logic for timeout errors
+    last_exception = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return req.execute()
+        except (TimeoutError, socket.timeout, OSError) as e:
+            last_exception = e
+            if attempt < MAX_RETRIES - 1:
+                wait_time = RETRY_DELAY * (attempt + 1)
+                print(f"⚠️  Timeout error (attempt {attempt + 1}/{MAX_RETRIES}). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ All {MAX_RETRIES} attempts failed due to timeout.")
+                raise
+    raise last_exception
 
 
 # Removed migratePrices flows: those are for migrating legacy cohorts, not setting new prices.
@@ -947,13 +979,20 @@ def main():
         if args.batch_size and args.batch_size > 0:
             total = len(merged_regional_configs)
             print(f"Applying in batches of {args.batch_size} (total {total})...")
+            
+            # Incrementally add regions in batches
+            cumulative_configs: List[dict] = []
             start = 0
             while start < total:
                 end = min(start + args.batch_size, total)
                 chunk = merged_regional_configs[start:end]
-                print(f"Applying {start+1}-{end}...")
-                apply_chunk(chunk)
+                cumulative_configs.extend(chunk)
+                print(f"Applying batch {start+1}-{end} (cumulative: {len(cumulative_configs)} regions)...")
+                apply_chunk(cumulative_configs)
                 start = end
+                # Small delay between batches to avoid rate limiting
+                if start < total:
+                    time.sleep(2)
             resp = {"basePlanId": args.base_plan_id}
         else:
             resp = apply_chunk(merged_regional_configs)
